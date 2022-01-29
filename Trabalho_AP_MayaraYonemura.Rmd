@@ -1,0 +1,1361 @@
+---
+title: "Análise Preditiva"
+author: "Mayara Yonemura - A58337141"
+date: "05/09/2021"
+output: 
+  html_document:
+    theme: paper
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
+---
+
+<br><br>
+
+# **Briefing**
+
+#### Os dados disponibilizados contém informações socio-econômicas de alunos que contrataram um financiamento estudantil por meio do FIES.
+
+
+<br>
+
+## *Objetivo da Análise Preditiva*
+
+##### Utilizar um modelo de predição, aprendido em aula, para classificar os alunos em bons pagadores ou mau pagadores. 
+    - Considere alto o custo de um falso negativo (pior classificar um aluno como bom pagador quando seria um mau pagador)
+    - Destacar sensibilidade do modelo
+
+<br>
+
+# **Resumo Executivo** 
+     
+##### Por se tratar de um problema de classificação, no qual precisa ser previsto se, a partir de determinadas informações fornecidas pelo aluno, o mesmo será inadimplente ou não, os modelos testados foram dois: Regressão Logística e Árvore de Decisão. Para Regressão Logística foram testadas algumas técnicas para conseguir otimizar o modelo, sendo elas: Padronização das informações, convertendo todas as variáveis númericas para a mesma escala, a Regularização LASSO, e a seleção de variáveis utilizando K-Fold Cross Validation e a própria saída da técnica LASSO que nos diz as correlações das variáveis através do menor coeficiente.
+
+##### Inicialmente foi utilizado o Dataset inteiro, com todas as variáveis, utilizando o modelo de Regressão Logística com Padronização, transformando todas as variáveis categóricas em fatores, e todos as variáveis númericas na mesma escala, e também a técnica de Regularização LASSO, o qual obteve o MSE (erro médio) melhor quanto comparado ao modelo padronizado. Assim, ainda com a técnica LASSO foi feita a seleção de variáveis e testando o modelo novamente, o qual teve aumento no MSE, ou seja, o modelo se adaptou menos (errou mais).
+     
+##### Em sequência foi testado a mesma seleção de variáveis com o Dataset padronizado, removendo os Outliers do Dataset, com 61% de Acurácia e 80% de Sensibilidade. Com o modelo treinado, foi testada a base de Outliers removida do Dataset original, o qual mostrou acurácia de 74%, aumentando a eficiência do modelo. 
+     
+##### Por fim, também foi testado um modelo de Árvore de Decisão, porém com a eficiência do modelo menor que os dois de Regressão Logística, com a acurácia em 62% e a sensbilidade em 77%.
+
+     
+##### Visto que, aplicando as técnicas de Regularização LASSO com seleção de variáveis aumentou o erro médio padrão do modelo, o mesmo teria que ser implementado com a coleta de todas as informações do Dataset - são 13 variáveis ao todo -, assim sendo, eliminando o modelo de Árvore de Decisão por resultados de acurácia (65% LASSO x 62% Árvore de Decisão) que também foi treinado com todas as variáveis. Considerando que a seleção de variáveis diminui a quantidade de informações requeridas, deixando o modelo menos complexo, o melhor modelo foi o de Regressão Logística com Padronização, selecionando 6 variáveis preditoras. 
+  
+<br><br>
+
+
+```{r Carregando as Bibliotecas, warning=FALSE, message=FALSE, include=FALSE}
+library(ggplot2)
+library(ggcorrplot)
+library(dplyr)
+library(e1071)
+library(caret)
+library(ROCR)
+library(pROC)
+library(plyr)
+library(knitr)
+library(rmarkdown)
+library(htmltools)
+library(psych)
+library(gmodels)
+library(glmnet)
+library(ridge)
+library(rpart)
+library(randomForest)
+```
+
+
+```{r ingestaodf, include=FALSE}
+setwd("C:/Users/mayar/Desktop/FGV/Analise_Preditiva")
+dtable <- read.csv('dados_trab_final_AP.csv', header=TRUE, sep = ';', dec = ',', stringsAsFactors = FALSE)
+```
+
+
+```{r quantitativo, include=FALSE}
+dim(dtable)
+```
+
+
+```{r viewtable, include=FALSE}
+##View(dtable)
+head(dtable)
+```
+
+
+```{r tailtable, include=FALSE}
+tail(dtable)
+```
+
+
+``` {r dados nulos, include=FALSE}
+colSums(is.na(dtable)) 
+## which(colSums(dtable==0) > 0)   ##Retorna quais colunas possuem os dados 0
+```
+
+
+```{r dtypes, include=FALSE}
+str(dtable)
+```
+
+
+```{r convertendo df, include=FALSE}
+dffinanciamento <- data.frame(dtable)
+```
+
+
+```{r sumario, include=FALSE}
+summary(dtable[c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                 "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")])
+```
+
+
+
+```{r histogramaidade, include=FALSE}
+hist(dffinanciamento$NU_IDADE,
+                  main= "Distribuição de Frequência de Idade",
+                  xlab = "Idade")
+```
+
+
+```{r boxplotnumericos semestre, include=FALSE}
+hist(dffinanciamento$NU_SEMESTRE_FINANCIADO,
+     main = "Quantidade de Semestres Financiados",
+     xlab = "Quantidade de Semestres")
+```
+
+
+```{r boxplotnumericos renda, include=FALSE}
+boxplot(dffinanciamento$VL_RENDA_FAMILIAR_BRUTA_MENSAL, dffinanciamento$VL_RENDA_PESSOA_BRUTA_MENSAL, dffinanciamento$VL_RENDA_PERCAPITA,
+        main = "BoxPlot dos valores de Rendas",
+        names = c("Renda Familia Bruta", "Renda Pessoa Bruta", "Renda Per Capita"),
+        ylab = "Valor (R$)")
+```
+
+
+```{r analise correlacao paineis, include=FALSE}
+pairs.panels(dffinanciamento[, c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                                 "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")])
+```
+
+```{r corrnum, include=FALSE}
+dffinanum <- dffinanciamento[, c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                                 "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")]
+
+cormat <- signif(cor(dffinanum), 2)
+
+plotcorr <- ggcorrplot(cormat, hc.order = TRUE, type = "lower",
+           lab =TRUE)
+print(plotcorr)
+```
+
+
+```{r tablesexo, include=FALSE}
+##str(dffinanciamento)
+table(dffinanciamento$SG_SEXO)
+round(prop.table(table(dffinanciamento$SG_SEXO)),3)
+```
+
+
+```{r tableracacor, include=FALSE}
+table(dffinanciamento$DS_RACA_COR)
+round(prop.table(table(dffinanciamento$DS_RACA_COR)),3)
+```
+
+
+```{r tableuf, include=FALSE}
+table(dffinanciamento$SG_UF)
+round(prop.table(table(dffinanciamento$SG_UF)),3)
+```
+
+
+```{r tablecivil, include=FALSE}
+table(dffinanciamento$DS_ESTADO_CIVIL)
+round(prop.table(table(dffinanciamento$DS_ESTADO_CIVIL)),3)
+```
+
+
+```{r tableescpublico, include=FALSE}
+table(dffinanciamento$ST_ENSINO_MEDIO_ESCOLA_PUBLICA)
+round(prop.table(table(dffinanciamento$ST_ENSINO_MEDIO_ESCOLA_PUBLICA)),3)
+```
+
+
+```{r tablebolsa, include=FALSE}
+table(dffinanciamento$ST_BOLSISTA_PROUNI)
+round(prop.table(table(dffinanciamento$ST_BOLSISTA_PROUNI)),3)
+```
+
+
+
+```{r tabledeficiencia, include=FALSE}
+table(dffinanciamento$ST_DEFICIENCIA)
+round(prop.table(table(dffinanciamento$ST_DEFICIENCIA)),3)
+```
+
+
+
+```{r tabletarget, include=FALSE}
+table(dffinanciamento$ST_INADIMPLENCIA)
+round(prop.table(table(dffinanciamento$ST_INADIMPLENCIA)),3)
+```
+
+
+
+```{r conversao sexo, include=FALSE}
+dffinanciamento$SG_SEXO <- sapply(dffinanciamento$SG_SEXO, function(x){ifelse(x=="F", "Feminino", "Masculino")})
+dffinanciamento$ST_INADIMPLENCIA <- sapply(dffinanciamento$ST_INADIMPLENCIA, function(x){ifelse(x=="S", 1, 0)})
+```
+
+
+```{r criando funcoes fatores, include=FALSE}
+convfatores <- function(dataset, variaveis){
+  for (variaveis in variaveis){
+    dataset[[variaveis]] <- as.factor(dataset[[variaveis]])
+  }
+  return(dataset)
+}
+
+convnormalizacao <- function(dataset, variaveis){
+  for (variaveis in variaveis){
+    dataset[[variaveis]] <- scale(dataset[[variaveis]], center = T, scale = T)
+  }
+  return(dataset)
+}
+```
+
+
+```{r aplicando funcoes, include=FALSE}
+##colnames(dffinanciamento)
+variaveisnumericas <- c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                        "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")
+
+variaveiscategoricas <- c('SG_SEXO', 'DS_RACA_COR', 'SG_UF', 'DS_ESTADO_CIVIL', 'ST_DEFICIENCIA', 'ST_ENSINO_MEDIO_ESCOLA_PUBLICA',
+                          'ST_BOLSISTA_PROUNI', 'ST_INADIMPLENCIA')
+
+## Normalização das Variáveis Númericas
+dffinanc_normalizado <- convnormalizacao(dffinanciamento, variaveisnumericas)
+
+
+## Conversão das Variáveis Categóricas em Fatores
+dffinanciamentoconv <- convfatores(dffinanc_normalizado, variaveiscategoricas)
+
+## Confirmando as transformações
+str(dffinanciamentoconv)
+```
+
+
+```{r separando treinoteste, include=FALSE}
+set.seed(2021)
+indicetreino <- sample(1:nrow(dffinanciamentoconv), 0.7 * nrow(dffinanciamentoconv))
+dftreino <- dffinanciamentoconv[indicetreino, ]
+
+indiceteste <- c(1:nrow(dffinanciamentoconv))[-indicetreino]
+dfteste <- dffinanciamentoconv[indiceteste, ]
+
+#3class(dftreino)
+##class(dfteste)
+```
+
+
+```{r summarytreino, include=FALSE}
+summary(dftreino)
+```
+
+
+
+```{r reglog, include=FALSE}
+## Do lado esquerdo do '~' a variável a ser prevista, do lado direito, as variáveis preditoras. 
+## O '.' representa todas as variáveis do Dataset
+## binomial por ser variável binária
+modeloreglog <- glm(as.formula("ST_INADIMPLENCIA ~ ."), data = dftreino, family = "binomial"(link="logit"))
+summary(modeloreglog)
+```
+
+
+```{r prevendorl, include=FALSE}
+previsoes <- predict(modeloreglog, dfteste, type = "response")
+previsoes <- round(previsoes)
+previsoes <- as.factor(previsoes)
+```
+
+
+```{r matrixconfusaorl, include=FALSE}
+variaveisteste <- dfteste[, -14]
+targetteste <- dfteste[, c("ST_INADIMPLENCIA")]
+
+##class(variaveisteste)
+##class(targetteste)
+
+confusionMatrix(table(data = previsoes, reference = targetteste), positive = '1')
+```
+
+
+```{r AUC, include=FALSE}
+fit_glm <- glm("ST_INADIMPLENCIA ~ .", dftreino, family = binomial(link="logit"))
+glm_link_score <- predict(fit_glm, dfteste, type="link")
+glm_response_score <- predict(fit_glm, dfteste, type = "response")
+score_data <- data.frame(link = glm_link_score, 
+                         response=glm_response_score,
+                         ST_INADIMPLENCIA=dfteste$ST_INADIMPLENCIA,
+                         stringsAsFactors = FALSE)
+
+
+score_data %>%
+  ggplot(aes(x=link, y=response, col=ST_INADIMPLENCIA)) +
+  scale_color_manual(values=c("blue", "red")) +
+  geom_point() + 
+  geom_rug() +
+  ggtitle("Plot do Modelo Preditivo")
+
+plot(roc(dfteste$ST_INADIMPLENCIA, glm_response_score, direction="<"),
+     col="blue", lwd=3, main="Plot do Resultado do Modelo de Previsão com Normalização")
+
+```
+
+
+```{r anova, include=FALSE}
+anova(modeloreglog, test="Chisq")
+```
+
+
+
+```{r regularizacao1, include=FALSE}
+##Recriando as bases de Treino e Teste sem Normalização
+set.seed(2021)
+idx_dftreinolasso <- sample(1:nrow(dffinanciamento), 0.7 * nrow(dffinanciamento))
+dftreinolasso <- dffinanciamento[idx_dftreinolasso,]
+
+idx_dftestelasso <- c(1:nrow(dffinanciamento))[-idx_dftreinolasso]
+dftestelasso <- dffinanciamento[idx_dftestelasso,]
+
+## Variáveis Target
+targettreinolasso <- dftreinolasso[, c("ST_INADIMPLENCIA")]
+targettestelasso <- dftestelasso[, c("ST_INADIMPLENCIA")]
+
+
+## Criando a Matrix de variáveis
+matrixbasetreino <- data.matrix(dftreinolasso[, -ncol(dftreinolasso)])
+matrixbaseteste <- data.matrix(dftestelasso[, -ncol(dftestelasso)])
+
+
+## Descobrindo o melhor Lambda
+set.seed(2021)
+modelocvlasso <- cv.glmnet(matrixbasetreino, targettreinolasso, alpha = 1)
+minlambda <- modelocvlasso$lambda.min
+minlambda
+
+
+## Melhor Coeficiente
+melhormodelocvlasso <- glmnet(matrixbasetreino, targettreinolasso, alpha = 1, lambda = minlambda)
+coef(melhormodelocvlasso)
+```
+
+
+```{r previsaolasso1, include=FALSE}
+previsaolasso1 <- predict(melhormodelocvlasso, newx = matrixbaseteste, s = minlambda)
+
+## Desempenho do Modelo usando MSE
+MSElasso1 <- mean((previsaolasso1 - targettestelasso)^2)
+MSElasso1
+```
+
+
+```{r comparando modelos, include=FALSE}
+
+modeloregloglasso <- glm(as.formula("ST_INADIMPLENCIA ~ ."), data = dftreinolasso, family = binomial(link="logit"))
+previsoeslasso <- predict(modeloregloglasso, dftestelasso, type = "response")
+previsoeslasso <- round(previsoeslasso)
+
+MSEprevisao1 <- mean((previsoeslasso - targettestelasso)^2)
+c(MSElasso1, MSEprevisao1)
+```
+
+
+
+```{r matrixconfusaolasso, include=FALSE}
+confusionMatrix(table(data = as.factor(previsoeslasso), reference = as.factor(dftestelasso$ST_INADIMPLENCIA)), positive = '1')
+```
+
+
+```{r selecao variaveis, include=FALSE}
+formula <- as.formula("ST_INADIMPLENCIA ~ .")
+controle <- trainControl(method = "repeatedcv", number = 6, repeats = 3)
+modelocontrole <- train(formula, data = dftreino, method="glm", trControl = controle)
+importance <- varImp(modelocontrole, scale = FALSE)
+plot(importance)
+```
+
+
+
+```{r selecao variavel lasso, include=FALSE}
+## Removação de outliers pela formula Q3 + 1.5 * IQR
+##Recriando as bases de Treino e Teste sem Normalização
+set.seed(2021)
+dflasso <- dffinanciamento
+
+## Removendo as colunas multicolinearidade (renda bruta) e sem efeito para modelo (st_deficiencia)
+dflasso$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dflasso$ST_DEFICIENCIA <- NULL
+
+## Removendo os Outliers
+Q3capitalasso <- quantile(dflasso$VL_RENDA_PERCAPITA, probs = 0.75)
+IQRcapitalasso <- IQR(dflasso$VL_RENDA_PERCAPITA)
+formulaoutlierscapitalasso <- Q3capitalasso + 1.5 * IQRcapitalasso
+dflassofilter <- filter(dflasso, VL_RENDA_PERCAPITA <= formulaoutlierscapitalasso)
+
+
+idx_dftreinolassofilter <- sample(1:nrow(dflassofilter), 0.7 * nrow(dflassofilter))
+dftreinolassofilter <- dflassofilter[idx_dftreinolassofilter,]
+
+idx_dftestelassofilter <- c(1:nrow(dflassofilter))[-idx_dftreinolassofilter]
+dftestelassofilter <- dflassofilter[idx_dftestelassofilter,]
+
+## Variáveis Target
+targettreinolassofilter <- dftreinolassofilter[, c("ST_INADIMPLENCIA")]
+targettestelassofilter <- dftestelassofilter[, c("ST_INADIMPLENCIA")]
+
+
+## Criando a Matrix de variáveis
+matrixbasetreinofilter <- data.matrix(dftreinolassofilter[, c("VL_RENDA_FAMILIAR_BRUTA_MENSAL", 
+                            "ST_ENSINO_MEDIO_ESCOLA_PUBLICA", 
+                            "DS_ESTADO_CIVIL",
+                            "VL_FINANCIAMENTO",
+                            "SG_SEXO",
+                            "ST_BOLSISTA_PROUNI")])
+
+matrixbasetestefilter <- data.matrix(dftestelassofilter[, c("VL_RENDA_FAMILIAR_BRUTA_MENSAL", 
+                            "ST_ENSINO_MEDIO_ESCOLA_PUBLICA", 
+                            "DS_ESTADO_CIVIL",
+                            "VL_FINANCIAMENTO",
+                            "SG_SEXO",
+                            "ST_BOLSISTA_PROUNI")])
+
+## Descobrindo o melhor Lambda
+set.seed(2021)
+modelocvlassofilter <- cv.glmnet(matrixbasetreinofilter, targettreinolassofilter, alpha = 1)
+minlambdafilter <- modelocvlassofilter$lambda.min
+minlambdafilter
+
+
+## Melhor Coeficiente
+melhormodelocvlassofilter <- glmnet(matrixbasetreinofilter, targettreinolassofilter, alpha = 1, lambda = minlambdafilter)
+coef(melhormodelocvlassofilter)
+```
+
+
+```{r previsaolasso filter, include=FALSE}
+previsaolassofilter<- predict(melhormodelocvlassofilter,
+                               newx = matrixbasetestefilter, 
+                               s = minlambdafilter)
+
+## Desempenho do Modelo usando MSE
+MSElassofilter <- mean((previsaolassofilter - targettestelassofilter)^2)
+MSElassofilter
+```
+
+
+```{r explorando outliers, include=FALSE}
+
+## Removação de outliers pela formula Q3 + 1.5 * IQR
+Q3capita <- quantile(dffinanciamentoconv$VL_RENDA_PERCAPITA, probs = 0.75)
+IQRcapita <- IQR(dffinanciamentoconv$VL_RENDA_PERCAPITA)
+formulaoutlierscapita <- Q3capita + 1.5 * IQRcapita
+dffinanciamentoconvcapita <- filter(dffinanciamentoconv, VL_RENDA_PERCAPITA <= formulaoutlierscapita)
+
+## Removendo as colunas multicolinearidade (renda bruta) e sem efeito para modelo (st_deficiencia)
+dffinanciamentoconvcapita$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dffinanciamentoconvcapita$ST_DEFICIENCIA <- NULL
+
+## Demonstração quantitativa e estatísitca das remoções
+table(dffinanciamento$ST_INADIMPLENCIA)
+table(dffinanciamentoconvcapita$ST_INADIMPLENCIA)
+summary(dffinanciamentoconvcapita)
+```
+
+
+```{r featselection outliers, include=FALSE}
+## Feature Selection após remoção das variáveis
+formula <- as.formula("ST_INADIMPLENCIA ~ .")
+controle <- trainControl(method = "repeatedcv", number = 6, repeats = 3)
+modelocontrole <- train(formula, data = dffinanciamentoconvcapita, method="glm", trControl = controle)
+importance <- varImp(modelocontrole, scale = FALSE)
+plot(importance)
+
+```
+
+
+```{r modeloreglog4, include=FALSE}
+## Separando em dados de Treino e Teste
+set.seed(2021)
+indicetreinocapita <- sample(1:nrow(dffinanciamentoconvcapita), 0.7 * nrow(dffinanciamentoconvcapita))
+dftreinocapita <- dffinanciamentoconvcapita[indicetreinocapita, ]
+
+indicetestecapita <- c(1:nrow(dffinanciamentoconvcapita))[-indicetreinocapita]
+dftestecapita <- dffinanciamentoconvcapita[indicetestecapita, ]
+
+
+## Treinando o modelo
+modeloreglog4 <- glm(ST_INADIMPLENCIA ~ VL_RENDA_FAMILIAR_BRUTA_MENSAL
+                     + ST_ENSINO_MEDIO_ESCOLA_PUBLICA
+                     + DS_ESTADO_CIVIL
+                     + VL_FINANCIAMENTO
+                     + SG_SEXO
+                     + ST_BOLSISTA_PROUNI,
+                     data = dftreinocapita, 
+                     family = "binomial")
+summary(modeloreglog4)
+```
+
+
+```{r previsaomodelo4, include=FALSE}
+## Fazendo as previsões do modelo
+previsoes4 <- predict(modeloreglog4, dftestecapita, type = "response")
+previsoes4 <- round(previsoes4)
+previsoes4 <- as.factor(previsoes4)
+
+targettestecapita <- dftestecapita[, c("ST_INADIMPLENCIA")]
+
+confusionMatrix(table(data = previsoes4, reference = targettestecapita), positive = '1')
+```
+
+
+```{r retornandooutliers, include=FALSE}
+dfoutliers <- filter(dffinanciamentoconv, VL_RENDA_PERCAPITA > formulaoutlierscapita)
+previsaooutliers4 <- predict(modeloreglog4, dfoutliers, type = "response")
+previsaooutliers4 <- round(previsaooutliers4)
+previsaooutliers4 <- as.factor(previsaooutliers4)
+
+confusionMatrix(previsaooutliers4, dfoutliers$ST_INADIMPLENCIA, positive = "1")
+```
+
+
+```{r ad, warning=FALSE, include=FALSE}
+library(rpart)
+
+## Removendo as colunas
+dftreino$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dftreino$ST_DEFICIENCIA <- NULL
+dfteste$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dfteste$ST_DEFICIENCIA <- NULL
+
+## Treinando o modelo com a seleção de variável testada no modelo de Regressão Logística
+modelorf <- rpart(ST_INADIMPLENCIA ~ VL_RENDA_FAMILIAR_BRUTA_MENSAL
+                     + ST_ENSINO_MEDIO_ESCOLA_PUBLICA
+                     + DS_ESTADO_CIVIL
+                     + VL_FINANCIAMENTO
+                     + SG_SEXO
+                     + ST_BOLSISTA_PROUNI,
+                  data = dftreino, 
+                  control = rpart.control(cp = 0.05))
+```
+
+
+```{r viewmodeload, include=FALSE}
+## Fazendo as previsões do modelo
+treepred <- predict(modelorf, dfteste, type = "class")
+mean(treepred==dfteste$ST_INADIMPLENCIA)
+```
+
+
+```{r confmatrixad, include=FALSE}
+table(treepred, dfteste$ST_INADIMPLENCIA)
+```
+
+
+```{r adsensitivy, include=FALSE}
+sensitivity(treepred, reference = dfteste$ST_INADIMPLENCIA, positive = '1')
+```
+
+
+# **Melhor Modelo**
+<br>
+## *Regressão Logística com Padronização e Feature Selection*
+
+
+```{r melhormodelo, echo=TRUE}
+summary(modeloreglog4)
+```
+
+<br><br>
+```{r melhormodelo matrix, echo=TRUE}
+confusionMatrix(table(data = previsoes4, reference = targettestecapita), positive = '1')
+```
+
+<br><br>
+
+# **Modelo Alternativo**
+<br>
+## *Regressão Logística com Regularização LASSO*
+```{r modelo alternativo, echo=TRUE}
+summary(modeloregloglasso)
+```
+
+<br><br>
+```{r modeloalternativo matrix, echo=TRUE}
+confusionMatrix(table(data = as.factor(previsoeslasso), reference = as.factor(dftestelasso$ST_INADIMPLENCIA)), positive = '1')
+```
+
+<br><br>
+
+# **Códigos Utilizados**
+
+## Carregando as bibliotecas
+```{r codigo Carregando as Bibliotecas, warning=FALSE, message=FALSE, eval=FALSE}
+library(ggplot2)
+library(ggcorrplot)
+library(dplyr)
+library(e1071)
+library(caret)
+library(ROCR)
+library(pROC)
+library(plyr)
+library(knitr)
+library(rmarkdown)
+library(htmltools)
+library(psych)
+library(gmodels)
+library(glmnet)
+library(ridge)
+library(rpart)
+library(randomForest)
+```
+
+
+<br>
+## **Ingestão dos Dados**
+
+```{r codigo codigo ingestaodf, eval=FALSE}
+setwd("C:/Users/mayar/Desktop/FGV/Analise_Preditiva")
+dtable <- read.csv('dados_trab_final_AP.csv', header=TRUE, sep = ';', dec = ',', stringsAsFactors = FALSE)
+```
+
+### Dimensões do Dataset
+  - Colunas e Linhas
+```{r codigo quantitativo, eval=FALSE}
+dim(dtable)
+```
+<br>
+
+### Visualização das 5 primeiras linhas do Dataset
+```{r codigo viewtable, eval=FALSE}
+##View(dtable)
+head(dtable)
+```
+
+<br>
+
+### Visualização das 5 últimas linhas do Dataset
+```{r codigo tailtable, eval=FALSE}
+tail(dtable)
+```
+
+
+<br>
+### Contagem de dados nulos por coluna:
+``` {r codigo dados nulos, eval=FALSE}
+colSums(is.na(dtable)) 
+```
+
+<br>
+
+### Visualização dos datatypes do Dataset
+```{r codigo dtypes, eval=FALSE}
+str(dtable)
+```
+
+### Convertendo a tabela em Dataframe
+```{r codigo convertendo df, eval=FALSE}
+dffinanciamento <- data.frame(dtable)
+```
+
+<br>
+
+## **Explorando Variáveis Númericas**
+
+<br>
+
+### Resumo Estatístico
+```{r codigo sumario, eval=FALSE}
+summary(dtable[c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                 "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")])
+```
+<br>
+
+### Distribuição de Frequência de Idade
+```{r codigo histogramaidade, eval=FALSE}
+hist(dffinanciamento$NU_IDADE,
+                  main= "Distribuição de Frequência de Idade",
+                  xlab = "Idade")
+```
+
+<br>
+
+### BoxPlot da Quantidade de Semestres Financiados
+```{r codigo boxplotnumericos semestre, eval=FALSE}
+hist(dffinanciamento$NU_SEMESTRE_FINANCIADO,
+     main = "Quantidade de Semestres Financiados",
+     xlab = "Quantidade de Semestres")
+```
+
+<br>
+
+### BoxPlot dos valores de Renda
+```{r codigo boxplotnumericos renda, eval=FALSE}
+boxplot(dffinanciamento$VL_RENDA_FAMILIAR_BRUTA_MENSAL, dffinanciamento$VL_RENDA_PESSOA_BRUTA_MENSAL, dffinanciamento$VL_RENDA_PERCAPITA,
+        main = "BoxPlot dos valores de Rendas",
+        names = c("Renda Familia Bruta", "Renda Pessoa Bruta", "Renda Per Capita"),
+        ylab = "Valor (R$)")
+```
+
+<br>
+
+### Painéis de Relacionamento entre as variáveis numéricas
+
+<br>
+```{r codigo analise correlacao paineis, eval=FALSE}
+pairs.panels(dffinanciamento[, c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                                 "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")])
+```
+
+
+<br>
+
+### Análise de Correlação entre as variáveis Númericas
+```{r codigo corrnum, eval=FALSE}
+dffinanum <- dffinanciamento[, c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                                 "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")]
+
+cormat <- signif(cor(dffinanum), 2)
+
+plotcorr <- ggcorrplot(cormat, hc.order = TRUE, type = "lower",
+           lab =TRUE)
+print(plotcorr)
+```
+
+<br><br>
+
+## **Explorando Variáveis Categóricas**
+
+<br>
+
+### Tabelas de Contingências e Proporções de cada categoria
+
+### Sexo
+```{r codigo tablesexo, eval=FALSE}
+##str(dffinanciamento)
+table(dffinanciamento$SG_SEXO)
+round(prop.table(table(dffinanciamento$SG_SEXO)),3)
+```
+<br>
+
+### Raça Cor
+```{r codigo tableracacor, eval=FALSE}
+table(dffinanciamento$DS_RACA_COR)
+round(prop.table(table(dffinanciamento$DS_RACA_COR)),3)
+```
+<br>
+
+### Estado (UF)
+```{r codigo tableuf, eval=FALSE}
+table(dffinanciamento$SG_UF)
+round(prop.table(table(dffinanciamento$SG_UF)),3)
+```
+<br>
+
+
+### Estado Civil 
+```{r codigo tablecivil, eval=FALSE}
+table(dffinanciamento$DS_ESTADO_CIVIL)
+round(prop.table(table(dffinanciamento$DS_ESTADO_CIVIL)),3)
+```
+
+### Ensino Médio em Escola Pública 
+```{r codigo tableescpublico, eval=FALSE}
+table(dffinanciamento$ST_ENSINO_MEDIO_ESCOLA_PUBLICA)
+round(prop.table(table(dffinanciamento$ST_ENSINO_MEDIO_ESCOLA_PUBLICA)),3)
+```
+
+
+<br>
+
+### Bolsista ProUni
+```{r codigo tablebolsa, eval=FALSE}
+table(dffinanciamento$ST_BOLSISTA_PROUNI)
+round(prop.table(table(dffinanciamento$ST_BOLSISTA_PROUNI)),3)
+```
+
+<br>
+
+### Deficiencia
+```{r codigo tabledeficiencia, eval=FALSE}
+table(dffinanciamento$ST_DEFICIENCIA)
+round(prop.table(table(dffinanciamento$ST_DEFICIENCIA)),3)
+```
+
+
+<br>
+
+### Estado de Inadimplência (variável Target)
+```{r codigo tabletarget, eval=FALSE}
+table(dffinanciamento$ST_INADIMPLENCIA)
+round(prop.table(table(dffinanciamento$ST_INADIMPLENCIA)),3)
+```
+
+
+<br>
+
+<br>
+
+## **Data Munging**
+
+<br>
+
+#### Definindo os fatores para a variável Target e descrevendo o sexo para fácil leitura
+```{r codigo conversao sexo, eval=FALSE}
+dffinanciamento$SG_SEXO <- sapply(dffinanciamento$SG_SEXO, function(x){ifelse(x=="F", "Feminino", "Masculino")})
+dffinanciamento$ST_INADIMPLENCIA <- sapply(dffinanciamento$ST_INADIMPLENCIA, function(x){ifelse(x=="S", 1, 0)})
+```
+
+<br>
+
+## **Aplicando Padronização**
+
+#### Criando as funções para transformar variáveis em Fatores e Padronização dos dados
+```{r codigo criando funcoes fatores, eval=FALSE}
+convfatores <- function(dataset, variaveis){
+  for (variaveis in variaveis){
+    dataset[[variaveis]] <- as.factor(dataset[[variaveis]])
+  }
+  return(dataset)
+}
+
+convnormalizacao <- function(dataset, variaveis){
+  for (variaveis in variaveis){
+    dataset[[variaveis]] <- scale(dataset[[variaveis]], center = T, scale = T)
+  }
+  return(dataset)
+}
+```
+
+<br>
+
+#### Visualização dos Datatypes após tratamento
+```{r codigo aplicando funcoes, eval=FALSE}
+##colnames(dffinanciamento)
+variaveisnumericas <- c("NU_IDADE", "VL_RENDA_FAMILIAR_BRUTA_MENSAL", "VL_RENDA_PESSOA_BRUTA_MENSAL",
+                        "VL_RENDA_PERCAPITA", "NU_SEMESTRE_FINANCIADO", "VL_FINANCIAMENTO")
+
+variaveiscategoricas <- c('SG_SEXO', 'DS_RACA_COR', 'SG_UF', 'DS_ESTADO_CIVIL', 'ST_DEFICIENCIA', 'ST_ENSINO_MEDIO_ESCOLA_PUBLICA',
+                          'ST_BOLSISTA_PROUNI', 'ST_INADIMPLENCIA')
+
+## Normalização das Variáveis Númericas
+dffinanc_normalizado <- convnormalizacao(dffinanciamento, variaveisnumericas)
+
+
+## Conversão das Variáveis Categóricas em Fatores
+dffinanciamentoconv <- convfatores(dffinanc_normalizado, variaveiscategoricas)
+
+## Confirmando as transformações
+str(dffinanciamentoconv)
+```
+
+<br>
+#### Preparando os dados para Treino e Teste
+```{r codigo separando treinoteste, eval=FALSE}
+set.seed(2021)
+indicetreino <- sample(1:nrow(dffinanciamentoconv), 0.7 * nrow(dffinanciamentoconv))
+dftreino <- dffinanciamentoconv[indicetreino, ]
+
+indiceteste <- c(1:nrow(dffinanciamentoconv))[-indicetreino]
+dfteste <- dffinanciamentoconv[indiceteste, ]
+
+#3class(dftreino)
+##class(dfteste)
+```
+
+<br>
+#### Sumário da Base de Treino
+```{r codigo summarytreino, eval=FALSE}
+summary(dftreino)
+```
+<br>
+
+*-- As distribuições das variáveis categórica com a Variável Target estão OK.*
+
+<br>
+
+## Construindo o Modelo de Regressão Logística com Padronização
+```{r codigo reglog, eval=FALSE}
+## Do lado esquerdo do '~' a variável a ser prevista, do lado direito, as variáveis preditoras. 
+## O '.' representa todas as variáveis do Dataset
+## binomial por ser variável binária
+modeloreglog <- glm(as.formula("ST_INADIMPLENCIA ~ ."), data = dftreino, family = "binomial"(link="logit"))
+summary(modeloreglog)
+```
+<br>
+
+###*Glossário sobre o sumário acima:*
+
+####*Resíduos: Diferença entre os valores observados e os valores previstos. ##### Devem se parecer com uma distribuição normal, o que indica que a média entre #### os valores previstos e os valores observados é próximo de 0.*
+
+####*Erro Padrão: Medida de variabilidade na estimativa do coeficiente. O ideal é que este valor seja menor que o valor do coeficiente.*
+
+
+<br><br>
+
+### Construindo o Modelo de Previsões
+```{r codigo prevendorl, eval=FALSE}
+previsoes <- predict(modeloreglog, dfteste, type = "response")
+previsoes <- round(previsoes)
+previsoes <- as.factor(previsoes)
+```
+
+<br>
+### Visualização do Resultado do modelo : Matriz de Confusão e Resumo Estatístico
+```{r codigo matrixconfusaorl, eval=FALSE}
+variaveisteste <- dfteste[, -14]
+targetteste <- dfteste[, c("ST_INADIMPLENCIA")]
+
+##class(variaveisteste)
+##class(targetteste)
+
+confusionMatrix(table(data = previsoes, reference = targetteste), positive = '1')
+```
+<br>
+
+### Visualização da Curva do Modelo de Regressão com Normalização
+```{r codigo AUC, eval=FALSE}
+fit_glm <- glm("ST_INADIMPLENCIA ~ .", dftreino, family = binomial(link="logit"))
+glm_link_score <- predict(fit_glm, dfteste, type="link")
+glm_response_score <- predict(fit_glm, dfteste, type = "response")
+score_data <- data.frame(link = glm_link_score, 
+                         response=glm_response_score,
+                         ST_INADIMPLENCIA=dfteste$ST_INADIMPLENCIA,
+                         stringsAsFactors = FALSE)
+
+
+score_data %>%
+  ggplot(aes(x=link, y=response, col=ST_INADIMPLENCIA)) +
+  scale_color_manual(values=c("blue", "red")) +
+  geom_point() + 
+  geom_rug() +
+  ggtitle("Plot do Modelo Preditivo")
+
+plot(roc(dfteste$ST_INADIMPLENCIA, glm_response_score, direction="<"),
+     col="blue", lwd=3, main="Plot do Resultado do Modelo de Previsão com Normalização")
+
+```
+
+<br>
+
+
+### Visualização dos desvios de cada variável no modelo com ANOVA
+```{r codigo anova, eval=FALSE}
+anova(modeloreglog, test="Chisq")
+```
+
+<br>
+
+####Ao analisar os desvios das variáveis, verificamos que para esse modelo as variáveis "DS_ESTADO_CIVIL", "ST_DEFICIENCIA", "VALOR_RENDA_PESSOAL_BRUTA" e "NU_SEMESTRE FINANCIADO" aparentam melhorar menos o modelo, embora "nu_semestre_financiado" esteja com valor p inferior a 0.05.
+
+<br><br>
+
+
+## **Aplicando Regularização LASSO**
+
+```{r codigo regularizacao1, eval=FALSE}
+##Recriando as bases de Treino e Teste sem Normalização
+set.seed(2021)
+idx_dftreinolasso <- sample(1:nrow(dffinanciamento), 0.7 * nrow(dffinanciamento))
+dftreinolasso <- dffinanciamento[idx_dftreinolasso,]
+
+idx_dftestelasso <- c(1:nrow(dffinanciamento))[-idx_dftreinolasso]
+dftestelasso <- dffinanciamento[idx_dftestelasso,]
+
+## Variáveis Target
+targettreinolasso <- dftreinolasso[, c("ST_INADIMPLENCIA")]
+targettestelasso <- dftestelasso[, c("ST_INADIMPLENCIA")]
+
+
+## Criando a Matrix de variáveis
+matrixbasetreino <- data.matrix(dftreinolasso[, -ncol(dftreinolasso)])
+matrixbaseteste <- data.matrix(dftestelasso[, -ncol(dftestelasso)])
+
+
+## Descobrindo o melhor Lambda
+set.seed(2021)
+modelocvlasso <- cv.glmnet(matrixbasetreino, targettreinolasso, alpha = 1)
+minlambda <- modelocvlasso$lambda.min
+minlambda
+
+
+## Melhor Coeficiente
+melhormodelocvlasso <- glmnet(matrixbasetreino, targettreinolasso, alpha = 1, lambda = minlambda)
+coef(melhormodelocvlasso)
+```
+
+<br>
+
+### Criando o modelo de Previsão com Lasso
+```{r codigo previsaolasso1, eval=FALSE}
+previsaolasso1 <- predict(melhormodelocvlasso, newx = matrixbaseteste, s = minlambda)
+
+## Desempenho do Modelo usando MSE
+MSElasso1 <- mean((previsaolasso1 - targettestelasso)^2)
+MSElasso1
+```
+<br>
+
+### Comparando os MSE dos modelos LASSO x Regressão Logística
+```{r codigo comparando modelos, eval=FALSE}
+
+modeloregloglasso <- glm(as.formula("ST_INADIMPLENCIA ~ ."), data = dftreinolasso, family = binomial(link="logit"))
+previsoeslasso <- predict(modeloregloglasso, dftestelasso, type = "response")
+previsoeslasso <- round(previsoeslasso)
+
+MSEprevisao1 <- mean((previsoeslasso - targettestelasso)^2)
+c(MSElasso1, MSEprevisao1)
+```
+<br>
+### Visualização do Resultado do modelo : Matriz de Confusão e Resumo Estatístico
+```{r codigo matrixconfusaolasso, eval=FALSE}
+confusionMatrix(table(data = as.factor(previsoeslasso), reference = as.factor(dftestelasso$ST_INADIMPLENCIA)), positive = '1')
+```
+
+
+<br>
+###*O modelo LASSO demonstrou melhor performance em relação ao modelo de regressão logística.*
+###*Com o cálculo de coeficiente de cada variável, podemos selecionar as variáveis com valores mais próxios de 0 para testar um novo modelo (feature selection por LASSO).*
+
+
+<br><br>
+
+
+## **Feature Selection**
+### Utilizando K-Fold Cross Validation
+```{r codigo selecao variaveis, eval=FALSE}
+formula <- as.formula("ST_INADIMPLENCIA ~ .")
+controle <- trainControl(method = "repeatedcv", number = 6, repeats = 3)
+modelocontrole <- train(formula, data = dftreino, method="glm", trControl = controle)
+importance <- varImp(modelocontrole, scale = FALSE)
+plot(importance)
+```
+
+<br><br>
+
+### Testando o modelo LASSO com seleção de variáveis
+
+```{r codigo selecao variavel lasso, eval=FALSE}
+## Removação de outliers pela formula Q3 + 1.5 * IQR
+##Recriando as bases de Treino e Teste sem Normalização
+set.seed(2021)
+dflasso <- dffinanciamento
+
+## Removendo as colunas multicolinearidade (renda bruta) e sem efeito para modelo (st_deficiencia)
+dflasso$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dflasso$ST_DEFICIENCIA <- NULL
+
+## Removendo os Outliers
+Q3capitalasso <- quantile(dflasso$VL_RENDA_PERCAPITA, probs = 0.75)
+IQRcapitalasso <- IQR(dflasso$VL_RENDA_PERCAPITA)
+formulaoutlierscapitalasso <- Q3capitalasso + 1.5 * IQRcapitalasso
+dflassofilter <- filter(dflasso, VL_RENDA_PERCAPITA <= formulaoutlierscapitalasso)
+
+
+idx_dftreinolassofilter <- sample(1:nrow(dflassofilter), 0.7 * nrow(dflassofilter))
+dftreinolassofilter <- dflassofilter[idx_dftreinolassofilter,]
+
+idx_dftestelassofilter <- c(1:nrow(dflassofilter))[-idx_dftreinolassofilter]
+dftestelassofilter <- dflassofilter[idx_dftestelassofilter,]
+
+## Variáveis Target
+targettreinolassofilter <- dftreinolassofilter[, c("ST_INADIMPLENCIA")]
+targettestelassofilter <- dftestelassofilter[, c("ST_INADIMPLENCIA")]
+
+
+## Criando a Matrix de variáveis
+matrixbasetreinofilter <- data.matrix(dftreinolassofilter[, c("VL_RENDA_FAMILIAR_BRUTA_MENSAL", 
+                            "ST_ENSINO_MEDIO_ESCOLA_PUBLICA", 
+                            "DS_ESTADO_CIVIL",
+                            "VL_FINANCIAMENTO",
+                            "SG_SEXO",
+                            "ST_BOLSISTA_PROUNI")])
+
+matrixbasetestefilter <- data.matrix(dftestelassofilter[, c("VL_RENDA_FAMILIAR_BRUTA_MENSAL", 
+                            "ST_ENSINO_MEDIO_ESCOLA_PUBLICA", 
+                            "DS_ESTADO_CIVIL",
+                            "VL_FINANCIAMENTO",
+                            "SG_SEXO",
+                            "ST_BOLSISTA_PROUNI")])
+
+## Descobrindo o melhor Lambda
+set.seed(2021)
+modelocvlassofilter <- cv.glmnet(matrixbasetreinofilter, targettreinolassofilter, alpha = 1)
+minlambdafilter <- modelocvlassofilter$lambda.min
+minlambdafilter
+
+
+## Melhor Coeficiente
+melhormodelocvlassofilter <- glmnet(matrixbasetreinofilter, targettreinolassofilter, alpha = 1, lambda = minlambdafilter)
+coef(melhormodelocvlassofilter)
+```
+
+### Criando o modelo de Previsão com Lasso - com seleção de variáveis
+```{r codigo previsaolasso filter, eval=FALSE}
+previsaolassofilter<- predict(melhormodelocvlassofilter,
+                               newx = matrixbasetestefilter, 
+                               s = minlambdafilter)
+
+## Desempenho do Modelo usando MSE
+MSElassofilter <- mean((previsaolassofilter - targettestelassofilter)^2)
+MSElassofilter
+```
+
+#### A seleção de variáveis para o modelo LASSO não foi efetiva, tendo aumentado o MSE após a seleção.
+
+
+## **Removendo outliers para Otimização do Modelo após Padronização**
+
+```{r codigo explorando outliers, eval=FALSE}
+
+## Removação de outliers pela formula Q3 + 1.5 * IQR
+Q3capita <- quantile(dffinanciamentoconv$VL_RENDA_PERCAPITA, probs = 0.75)
+IQRcapita <- IQR(dffinanciamentoconv$VL_RENDA_PERCAPITA)
+formulaoutlierscapita <- Q3capita + 1.5 * IQRcapita
+dffinanciamentoconvcapita <- filter(dffinanciamentoconv, VL_RENDA_PERCAPITA <= formulaoutlierscapita)
+
+## Removendo as colunas multicolinearidade (renda bruta) e sem efeito para modelo (st_deficiencia)
+dffinanciamentoconvcapita$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dffinanciamentoconvcapita$ST_DEFICIENCIA <- NULL
+
+## Demonstração quantitativa e estatísitca das remoções
+table(dffinanciamento$ST_INADIMPLENCIA)
+table(dffinanciamentoconvcapita$ST_INADIMPLENCIA)
+summary(dffinanciamentoconvcapita)
+```
+
+<br>
+### Feature Selection após remoção dos Outliers
+```{r codigo featselection outliers, eval=FALSE}
+## Feature Selection após remoção das variáveis
+formula <- as.formula("ST_INADIMPLENCIA ~ .")
+controle <- trainControl(method = "repeatedcv", number = 6, repeats = 3)
+modelocontrole <- train(formula, data = dffinanciamentoconvcapita, method="glm", trControl = controle)
+importance <- varImp(modelocontrole, scale = FALSE)
+plot(importance)
+
+```
+
+<br>
+### Treinando o Modelo de Regressão com Seleção de Variáveis
+```{r codigo modeloreglog4, eval=FALSE}
+## Separando em dados de Treino e Teste
+set.seed(2021)
+indicetreinocapita <- sample(1:nrow(dffinanciamentoconvcapita), 0.7 * nrow(dffinanciamentoconvcapita))
+dftreinocapita <- dffinanciamentoconvcapita[indicetreinocapita, ]
+
+indicetestecapita <- c(1:nrow(dffinanciamentoconvcapita))[-indicetreinocapita]
+dftestecapita <- dffinanciamentoconvcapita[indicetestecapita, ]
+
+
+## Treinando o modelo
+modeloreglog4 <- glm(ST_INADIMPLENCIA ~ VL_RENDA_FAMILIAR_BRUTA_MENSAL
+                     + ST_ENSINO_MEDIO_ESCOLA_PUBLICA
+                     + DS_ESTADO_CIVIL
+                     + VL_FINANCIAMENTO
+                     + SG_SEXO
+                     + ST_BOLSISTA_PROUNI,
+                     data = dftreinocapita, 
+                     family = "binomial")
+summary(modeloreglog4)
+```
+
+
+<br>
+### Visualização do Resultado do modelo : Matriz de Confusão e Resumo Estatístico
+```{r codigo previsaomodelo4, eval=FALSE}
+## Fazendo as previsões do modelo
+previsoes4 <- predict(modeloreglog4, dftestecapita, type = "response")
+previsoes4 <- round(previsoes4)
+previsoes4 <- as.factor(previsoes4)
+
+targettestecapita <- dftestecapita[, c("ST_INADIMPLENCIA")]
+
+confusionMatrix(table(data = previsoes4, reference = targettestecapita), positive = '1')
+```
+
+
+### Visualização do Resultado do modelo : Matriz de Confusão e Resumo Estatístico
+#### Testando com a base de Outliers
+```{r codigo retornandooutliers, eval=FALSE}
+dfoutliers <- filter(dffinanciamentoconv, VL_RENDA_PERCAPITA > formulaoutlierscapita)
+previsaooutliers4 <- predict(modeloreglog4, dfoutliers, type = "response")
+previsaooutliers4 <- round(previsaooutliers4)
+previsaooutliers4 <- as.factor(previsaooutliers4)
+
+confusionMatrix(previsaooutliers4, dfoutliers$ST_INADIMPLENCIA, positive = "1")
+```
+
+<br><br>
+## **Análise Preditiva com Árvore de Decisão
+<br>
+### **Testando um modelo de árvore de Decisão - com seleção de variáveis (sem excluir outliers)**
+<br>
+```{r codigo ad, warning=FALSE, eval=FALSE}
+library(rpart)
+
+## Removendo as colunas
+dftreino$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dftreino$ST_DEFICIENCIA <- NULL
+dfteste$VL_RENDA_PESSOA_BRUTA_MENSAL <- NULL
+dfteste$ST_DEFICIENCIA <- NULL
+
+## Treinando o modelo com a seleção de variável testada no modelo de Regressão Logística
+modelorf <- rpart(ST_INADIMPLENCIA ~ VL_RENDA_FAMILIAR_BRUTA_MENSAL
+                     + ST_ENSINO_MEDIO_ESCOLA_PUBLICA
+                     + DS_ESTADO_CIVIL
+                     + VL_FINANCIAMENTO
+                     + SG_SEXO
+                     + ST_BOLSISTA_PROUNI,
+                  data = dftreino, 
+                  control = rpart.control(cp = 0.05))
+```
+
+<br>
+### Acurácia do Modelo de Árvore de Decisão com Rpart
+```{r codigo viewmodeload, eval=FALSE}
+## Fazendo as previsões do modelo
+treepred <- predict(modelorf, dfteste, type = "class")
+mean(treepred==dfteste$ST_INADIMPLENCIA)
+```
+
+<br>
+### Matrix de confusão
+```{r codigo confmatrixad, eval=FALSE}
+table(treepred, dfteste$ST_INADIMPLENCIA)
+```
+<br>
+### Sensibilidade do Modelo de Árvore de Decisão com Rpart
+```{r codigo adsensitivy, eval=FALSE}
+sensitivity(treepred, reference = dfteste$ST_INADIMPLENCIA, positive = '1')
+```
+
+<br><br>
+
+# **Códigos que não rodaram**
+
+#### Aplicando Cost Function - penalizar o modelo para erro de Falso Negativo (direcionado pelo trabalho)
+```{r costfunc, eval=FALSE}
+library(C50)
+##w21 : o peso está de 2 para previsões de Falso Negativo
+costfunc <- matrix(c(0, 2 , 1, 0), nrow = 2, dimnames = list(c("1", "2"), c("1", "2")))
+
+modelocostfunc <-C5.0(ST_INADIMPLENCIA ~ ., data = dftreino, rules = TRUE, control = C5.0Control(), cost = costfunc)
+print(modelocostfunc)
+
+previsoes2 <- predict(object = modelocostfunc, newdata = dfteste, type = "class", na.action= na.pass)
+
+confusionMatrix(table(data = previsoes2, reference = targetteste), positive = "1")
+```
+
+
+### RandomForest por função
+```{r rffnc, eval=FALSE}
+rffunc <- randomForest(ST_INADIMPLENCIA ~ ., 
+                       data = dftreino,
+                       importance = TRUE,
+                       proximity = TRUE)
+
+predmodelrf <- predict(rffunc, dfteste)
+mean(predmodelrf==dfteste$ST_INADIMPLENCIA)
+
+table(predmodelrf, dfteste$ST_INADIMPLENCIA)
+summary(predmodelrf)
+
+```
+
+
+```{r modelocost, eval=FALSE}
+library(mlbench)
+## Separando em dados de Treino e Teste
+indicetreinocost <- sample(1:nrow(dffinanciamentoconv), 0.7 * nrow(dffinanciamentoconv))
+dftreinocost <- dffinanciamentoconv[indicetreinocost, ]
+
+indicetestecost <- c(1:nrow(dffinanciamentoconv))[-indicetreinocost]
+dftestecost <- dffinanciamentoconv[indicetestecost, ]
+
+
+fitcontrol <- trainControl(method="repeatedcv", number=10, repeats=5)
+
+##w21 : o peso está de 2 para previsões de Falso Negativo
+costfunc <- matrix(c(0, 2 , 1, 0), nrow = 2, dimnames = list(c("1", "2"), c("1", "2")))
+
+statGrid <- expand.grid(trials = 3,
+                        model = "tree",
+                        winnow = FALSE,
+                        cost = costfunc)
+
+statFit <- train(ST_INADIMPLENCIA ~ VL_RENDA_FAMILIAR_BRUTA_MENSAL
+                 + VL_RENDA_PERCAPITA
+                 + ST_ENSINO_MEDIO_ESCOLA_PUBLICA
+                 + VL_FINANCIAMENTO
+                 + ST_BOLSISTA_PROUNI
+                 + DS_ESTADO_CIVIL
+                 + NU_IDADE
+                 + DS_REGIAO,
+                 data = dftreinocost, 
+                 method = "C5.0Cost", 
+                 trControl = fitcontrol,
+                 tuneGrid = statGrid,
+                 metric = "Accuracy")
+```
+
+
+
+
+### Construindo o modelo SVM
+<br>
+```{r testesvm, eval=FALSE}
+
+## Criando o índice para divisao de dados de treino e de teste
+dadosdf <- dffinanciamento
+dadosdf[, 'indices'] <- ifelse(runif(nrow(dadosdf)) < 0.7, 1, 0)
+
+## Saparando os dados
+dadostreino <- filter(dadosdf, indices == 1)
+dadosteste <- filter(dadosdf, indices != 1)
+
+## Gera o índice das linhas
+linhaindice <- grep('indices', names(dadostreino))
+
+## Removendo o Índice dos dados de treino e de teste
+dadostreino <- dadostreino[, -linhaindice]
+dadosteste <- dadosteste[, -linhaindice]
+
+## Gera o índice das colunas
+colunaindice <- grep('ST_INADIMPLENCIA', names(dadosdf))
+
+## Construindo o Modelo de Predição
+library(e1071)
+modelosvm <- svm(ST_INADIMPLENCIA ~ . ,
+                 data = dadostreino ,
+                 type = 'C-classification',
+                 kernel = 'radial')
+```
+
+```{r treinando svm, eval=FALSE}
+previsaosvm <- predict(modelosvm, dadosteste)
+
+mean(previsaosm == dadosteste$ST_INADIMPLENCIA)
+
+## Confusion Matrix
+table(previsaosvm, dadosteste$ST-INADIMPLENCIA)
+
+```
+
+
+
+
+
+
+
