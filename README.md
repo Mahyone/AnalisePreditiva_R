@@ -13,6 +13,8 @@ estudantil por meio do FIES.
 
 ** Descrição das variáveis estará disponível no arquivo 'DataSet_AP_Description'.  
 
+     
+---------
           
 OBJETIVO:  
 Confeccionar um modelo preditivo, utilizando apenas as técnicas apresentadas na disciplina, para
@@ -23,7 +25,7 @@ a SENSIBILIDADE (ou recall) do seu modelo. Esta será a medida utilizada para ra
 modelos apresentados por todos os alunos. Verifique o final dos slides teóricos da aula 03 (na versão
 atualizada) para saber mais sobre a sensibilidade de um modelo.  
    
-
+---------
 ESTRUTURA DO RELATÓRIO:   
 Seu relatório deverá conter OBRIGATORIAMENTE as seguintes seções e subseções:
 
